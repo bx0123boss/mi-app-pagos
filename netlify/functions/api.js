@@ -1,7 +1,6 @@
-import { getDatabase } from '@netlify/database'
+import { neon } from '@neondatabase/serverless'
 
-const db = getDatabase()
-
+const sql = neon(process.env.DATABASE_URL)
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -18,7 +17,7 @@ export default async (req, context) => {
   try {
     // ---- CONTRACTS ----
     if (method === 'GET' && path === '/api/contracts') {
-      const rows = await db.sql`
+      const rows = await sql`
         SELECT 
           c.id,
           c.client_name,
@@ -42,7 +41,7 @@ export default async (req, context) => {
         return error('client_name y total_amount son requeridos', 400)
       }
 
-      const [contract] = await db.sql`
+      const [contract] = await sql`
         INSERT INTO contracts (client_name, total_amount)
         VALUES (${client_name}, ${total_amount})
         RETURNING *
@@ -59,14 +58,14 @@ export default async (req, context) => {
       }
 
       // Verificar que el contrato existe
-      const [contract] = await db.sql`
+      const [contract] = await sql`
         SELECT id FROM contracts WHERE id = ${contract_id}
       `
       if (!contract) {
         return error('Contrato no encontrado', 404)
       }
 
-      const [payment] = await db.sql`
+      const [payment] = await sql`
         INSERT INTO payments (contract_id, amount, payment_date)
         VALUES (${contract_id}, ${amount}, ${payment_date || new Date().toISOString()})
         RETURNING *
@@ -79,7 +78,7 @@ export default async (req, context) => {
     if (method === 'GET' && contractDetailMatch) {
       const contractId = parseInt(contractDetailMatch[1], 10)
 
-      const [contract] = await db.sql`
+      const [contract] = await sql`
         SELECT 
           c.id,
           c.client_name,
@@ -94,7 +93,7 @@ export default async (req, context) => {
       `
       if (!contract) return error('Contrato no encontrado', 404)
 
-      const payments = await db.sql`
+      const payments = await sql`
         SELECT id, amount, payment_date
         FROM payments
         WHERE contract_id = ${contractId}
@@ -102,7 +101,7 @@ export default async (req, context) => {
       `
 
       // Traer distribuciones de todos esos pagos
-      const distributions = await db.sql`
+      const distributions = await sql`
         SELECT d.id, d.payment_id, d.person_name, d.amount, d.is_expense
         FROM distributions d
         INNER JOIN payments p ON p.id = d.payment_id
@@ -122,12 +121,12 @@ export default async (req, context) => {
         return error('payment_id, person_name y amount son requeridos', 400)
       }
 
-      const [payment] = await db.sql`
+      const [payment] = await sql`
         SELECT id FROM payments WHERE id = ${payment_id}
       `
       if (!payment) return error('Pago no encontrado', 404)
 
-      const [distribution] = await db.sql`
+      const [distribution] = await sql`
         INSERT INTO distributions (payment_id, person_name, amount, is_expense)
         VALUES (${payment_id}, ${person_name}, ${amount}, ${is_expense})
         RETURNING *
@@ -137,14 +136,14 @@ export default async (req, context) => {
         // ---- SUMMARY ----
     if (method === 'GET' && path === '/api/summary') {
       // Totales globales
-      const [totals] = await db.sql`
+      const [totals] = await sql`
         SELECT
           COALESCE((SELECT SUM(total_amount) FROM contracts), 0) AS total_contratado,
           COALESCE((SELECT SUM(amount) FROM payments), 0) AS total_cobrado
       `
 
       // Reparto por persona (excluyendo gastos)
-      const byPerson = await db.sql`
+      const byPerson = await sql`
         SELECT 
           person_name,
           SUM(amount) AS total,
@@ -156,7 +155,7 @@ export default async (req, context) => {
       `
 
       // Total de gastos
-      const [expenses] = await db.sql`
+      const [expenses] = await sql`
         SELECT 
           COALESCE(SUM(amount), 0) AS total_gastos,
           COUNT(*) AS movimientos
@@ -165,7 +164,7 @@ export default async (req, context) => {
       `
 
       // Detalle de gastos
-      const expenseList = await db.sql`
+      const expenseList = await sql`
         SELECT person_name, SUM(amount) AS total
         FROM distributions
         WHERE is_expense = true
